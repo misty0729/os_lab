@@ -636,3 +636,50 @@ args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8
 ```
 
 ## 【练习6】完善中断初始化和处理
+
+###  中断向量表中一个表项占多少字节？其中哪几位代表中断处理代码的入口？
+
+中断描述符表把每个中断或异常编号和一个指向中断服务例程的描述符联系起来。我们阅读【中断与异常】小结，得知中断描述符表中一个表项占用8个字节：其中`0-1`字节和`6-7`字节是偏移地址，`2-3`字节是段选择子。
+
+### 请编程完善kern/trap/trap.c中对中断向量表进行初始化的函数idt_init。
+
+```C
+  /* LAB1 2015010207 : STEP 2 */
+//define ISR's entry addrs _vectors[]
+      extern uintptr_t __vectors[];   
+    int i = 0;
+    //arguments：0 means interrupt，GD_KTEXT means kernel text
+    //use SETGATE macro to setup each item of IDT
+    while(i < sizeof(idt) / sizeof(struct gatedesc)) {
+        SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL);
+        i ++;
+    }
+    // switch from user state to kernel state
+    SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+    //let CPU know where is IDT by using 'lidt' instruction
+    lidt(&idt_pd);
+```
+
+实现步骤为：
+
+1、构建保护模式下的vector,用于存储中断服务例程的入口地址
+
+2、初始化全局描述表
+
+3、利用lidt命令获取当前地址
+
+### 请编程完善 trap.c 中的中断处理函数 trap，在对时钟中断进行处理的部分填写 trap 函数中处理时钟中断的部分，使操作系统每遇到 100 次时钟中断后，调用 print_ticks 子程序，向屏幕上打印一行文字”100 ticks”
+
+```C++
+ /* LAB1 2015010207 : STEP 3 */
+        /* handle the timer interrupt */
+        /* (1) After a timer interrupt, you should record this event using a global variable (increase it), such as ticks in kern/driver/clock.c
+         * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
+         * (3) Too Simple? Yes, I think so!
+         */
+        ticks++;
+        if (ticks % TICK_NUM == 0) {
+            print_ticks();
+        }
+```
+
