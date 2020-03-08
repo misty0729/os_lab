@@ -357,3 +357,116 @@ $(UCOREIMG): $(kernel) $(bootblock)
 
 ## 【练习 3】分析 bootloader 进入保护模式的过程
 
+#### 代码分析，阅读`bootasm.S`中第12行开始的内容。
+
+```c++
+//从cs=0 && ip=0x7c00进入bootloader启动过程
+.globl start
+start:
+//启动进入先要对环境进行清理
+.code16                                             # Assemble for 16-bit mode
+    //关闭了中断使能
+    cli                                             # Disable interrupts
+    //使方向标志复位
+    cld                                             # String operations increment
+
+    # Set up the important data segment registers (DS, ES, SS).
+    //清空段寄存器
+    xorw %ax, %ax                                   # Segment number zero
+    movw %ax, %ds                                   # -> Data Segment
+    movw %ax, %es                                   # -> Extra Segment
+    movw %ax, %ss                                   # -> Stack Segment
+```
+
+```C++
+//开启A20，以便能够通过总线访问更大的内存空间
+//这里通过使能全部的32条地址线，我们可以访问4G的内存空间
+# Enable A20:
+    #  For backwards compatibility with the earliest PCs, physical
+    #  address line 20 is tied low, so that addresses higher than
+    #  1MB wrap around to zero by default. This code undoes this.
+seta20.1:
+//首先等待8042为空
+    inb $0x64, %al                                  # Wait for not busy(8042 input buffer empty).
+    testb $0x2, %al
+    jnz seta20.1
+//然后发送写指令到8042 输入buffer
+    movb $0xd1, %al                                 # 0xd1 -> port 0x64
+    outb %al, $0x64                                 # 0xd1 means: write data to 8042's P2 port
+
+seta20.2:
+//等待8042为空
+    inb $0x64, %al                                  # Wait for not busy(8042 input buffer empty).
+    testb $0x2, %al
+    jnz seta20.2
+//打开A20
+    movb $0xdf, %al                                 # 0xdf -> port 0x60
+    outb %al, $0x60                                 # 0xdf = 11011111, means set P2's A20 bit(the 1 bit) to 1
+```
+
+```c++
+//初始化gdt表
+//bootasm.S中的lgdt gdtdesc把全局描述符表的大小和起始地址共8个字节加载到全局描述符表寄存器GDTR中
+lgdt gdtdesc
+    //进入保护模式：通过将cr0寄存器PE位置1便开启了保护模式
+    movl %cr0, %eax
+    orl $CR0_PE_ON, %eax
+    movl %eax, %cr0
+```
+
+```C++
+    # Jump to next instruction, but in 32-bit code segment.
+    # Switches processor into 32-bit mode.
+//通过长跳转更新cs的基地质
+    ljmp $PROT_MODE_CSEG, $protcseg
+
+.code32                                             # Assemble for 32-bit mode
+protcseg:
+    # Set up the protected-mode data segment registers
+//设置保护模式的段寄存器，并建立堆栈
+    movw $PROT_MODE_DSEG, %ax                       # Our data segment selector
+    movw %ax, %ds                                   # -> DS: Data Segment
+    movw %ax, %es                                   # -> ES: Extra Segment
+    movw %ax, %fs                                   # -> FS
+    movw %ax, %gs                                   # -> GS
+    movw %ax, %ss                                   # -> SS: Stack Segment
+
+    # Set up the stack pointer and call into C. The stack region is from 0--start(0x7c00)
+    movl $0x0, %ebp
+    movl $start, %esp
+```
+
+```C++
+    //整个过程完成，进入boot主方法
+    call bootmain
+```
+
+#### 为什么我们要开启A20：
+
+如果我们要在实模式下要访问高位的内存区，要开启A20地址线；在保护模式下，如果A20恒等于0，那么系统只能访问奇数兆的内存，即只能访问`0-1M`、`2-3M`、`4-5M`，这样无法有效访问所有可用内存。所以在保护模式下，必须要开启A20。
+
+#### 如何开启A20:
+
+1、等待8042为空
+
+2、发送写指令到8042 input buffer
+
+3、等待8042为空
+
+4、将对应字节写入8042
+
+#### 如何初始化GDT表：
+
+一个简单的GDT表和其描述符已经静态储存在引导区中，载入即可
+
+#### 如何使能和进入保护模式：
+
+将cr0寄存器的PE位（cr0寄存器的最低位）设置为1，便使能和进入保护模式了
+
+## 【练习4】分析bootloader加载ELF格式的OS的过程。
+
+
+
+## 【练习5】实现函数调用堆栈跟踪函数
+
+## 【练习6】完善中断初始化和处理
