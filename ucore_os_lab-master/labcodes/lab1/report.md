@@ -561,4 +561,78 @@ continue
 
 ## 【练习5】实现函数调用堆栈跟踪函数
 
+### 实现代码
+
+根据注释一步一步实现
+
+```C
+ /* LAB1 2015010207 : STEP 1 */
+     /* (1) call read_ebp() to get the value of ebp. the type is (uint32_t);
+     */
+     uint32_t ebp = read_ebp();
+      // (2) call read_eip() to get the value of eip. the type is (uint32_t);
+      uint32_t eip = read_eip();
+      // (3) from 0 .. STACKFRAME_DEPTH
+      int i = 0;
+      while(i < STACKFRAME_DEPTH && ebp != 0 && eip != 0) {
+          // (3.1) printf value of ebp, eip
+           cprintf("ebp:0x%08x eip:0x%08x args:", ebp, eip);   
+           // (uint32_t)calling arguments [0..4] = the contents in address (uint32_t)ebp +2 [0..4]
+            uint32_t *args = (uint32_t *)ebp + 2;                            
+            int j = 0;
+            while(j < 4){           
+                cprintf("0x%08x ", args[j]);
+                j ++;
+            }
+            //(3.3) cprintf("\n");
+            cprintf("\n");   
+            // (3.4) call print_debuginfo(eip-1) to print the C calling function name and line number, etc.
+            print_debuginfo(eip - 1);
+            //(3.5) popup a calling stackframe
+            eip = ((uint32_t *)ebp)[1]; 
+            ebp = ((uint32_t *)ebp)[0]; 
+            i++;
+      }
+```
+
+
+
+### 获得输出
+
+```c++
+Special kernel symbols:
+  entry  0x00100000 (phys)
+  etext  0x001037c3 (phys)
+  edata  0x0010e950 (phys)
+  end    0x0010fdc0 (phys)
+Kernel executable memory footprint: 64KB
+ebp:0x00007b38 eip:0x00100be3 args:0x00010094 0x0010e950 0x00007b68 0x001000a2 
+    kern/debug/kdebug.c:298: print_stackframe+33
+ebp:0x00007b48 eip:0x00100f6a args:0x00000000 0x00000000 0x00000000 0x0010008d 
+    kern/debug/kmonitor.c:125: mon_backtrace+23
+ebp:0x00007b68 eip:0x001000a2 args:0x00000000 0x00007b90 0xffff0000 0x00007b94 
+    kern/init/init.c:48: grade_backtrace2+32
+ebp:0x00007b88 eip:0x001000d1 args:0x00000000 0xffff0000 0x00007bb4 0x001000e5 
+    kern/init/init.c:53: grade_backtrace1+37
+ebp:0x00007ba8 eip:0x001000f8 args:0x00000000 0x00100000 0xffff0000 0x00100109 
+    kern/init/init.c:58: grade_backtrace0+29
+ebp:0x00007bc8 eip:0x00100124 args:0x00000000 0x00000000 0x00000000 0x001037c4 
+    kern/init/init.c:63: grade_backtrace+37
+ebp:0x00007be8 eip:0x00100066 args:0x00000000 0x00000000 0x00000000 0x00007c4f 
+    kern/init/init.c:28: kern_init+101
+ebp:0x00007bf8 eip:0x00007d6e args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8 
+    <unknow>: -- 0x00007d6d --
+```
+
+解释最后一行参数的含义
+
+```C++
+//整个栈的栈顶地址为0x00007c00，当前 ebp的值是kern_init函数的栈顶地址。ebp指向的栈位置存放调用者的ebp寄存器的值，ebp+4指向的栈位置存放返回地址的值。
+ebp:0x00007bf8 
+ //kernel_init的返回地址，即bootmain函数调用kern_init对应的指令的下一条指令的地址
+eip:0x00007d6e 
+//args存放的是bootloader指令的前16个字节    
+args:0xc031fcfa 0xc08ed88e 0x64e4d08e 0xfa7502a8
+```
+
 ## 【练习6】完善中断初始化和处理
