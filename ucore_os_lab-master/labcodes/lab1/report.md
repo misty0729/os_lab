@@ -1,4 +1,4 @@
-# Lab1实验报告**
+# Lab1实验报告
 
 ## 【练习1.1】理解通过 make 生成执行文件的过程
 
@@ -175,4 +175,185 @@ $(UCOREIMG): $(kernel) $(bootblock)
 >buf[511] = 0xAA;
 
 因此引导扇区只有512个字节，其中倒数第一个为0xAA，倒数第二个为0x55为特征
+
+## 【练习 2】使用 qemu 执行并调试 lab1 中的软件
+
+### 从CPU加电后执行的第一条指令开始，单步跟踪BIOS的执行
+
+* 首先修改文件`tools/gbinit`
+
+  ```c++
+  file bin/kernel
+  set architecture i8086
+  target remote :1234
+  break kern_init
+  #删除continue防止直接开始执行
+  ```
+
+* 在lab1目录下执行make debug
+
+  可以看到	
+
+  ```0x0000fff0 in ?? ()```
+
+  我们设想的是0xFFFFFFF0，即第一条指令位置，这是因为gdb只显示了当前的PC寄存器的数值，没有考虑cs寄存器的数值，因此我们如果要查看CPU加电后的第一条指令，需要对当前的PC加上CS寄存器的数值
+
+* 在gdb中输入指令
+
+  ```x /i $cs*16 + $pc```
+
+  显示的输出结果为
+
+  ``` 0xffff0:      ljmp   $0x3630,$0xf000e05b```
+
+  第一条指令是一条长跳转指令到`BIOS`代码中执行，这里屏幕输出的是`ljmp`是长跳转指令，因此正确
+
+* 在gdb中进行单步跟踪，输入si或者stepi指令
+
+  ```
+  (gdb) si
+  0x0000e05b in ?? ()
+  (gdb) si
+  0x0000e062 in ?? ()
+  (gdb) stepi
+  0x0000e066 in ?? ()
+  ```
+
+### 在初始化位置 0x7c00 设置实地址断点,测试断点正常
+
+* 修改文件`tools/gbinit`
+
+  ```C++
+  file bin/kernel
+  set architecture i8086
+  target remote :1234
+  #在0x7c00的地方加入断点
+  b	*0x7c00
+  #继续执行
+  continue
+  #输出两条指令
+  x /2i $pc
+  set architecture i386
+  ```
+
+* 在lab1目录下执行make debug
+
+  可以看到
+
+  ```
+  Breakpoint 1 at 0x7c00
+  
+  Breakpoint 1, 0x00007c00 in ?? ()
+  => 0x7c00:      cli
+     0x7c01:      cld
+  ```
+
+  断点测试正常
+
+### 从 0x7c00 开始跟踪代码运行,将单步跟踪反汇编得到的代码与 bootasm.S 和 bootblock.asm 进行比较。
+
+* 修改文件`tools/gbinit`
+
+  ```c++
+  file bin/kernel
+  set architecture i8086
+  target remote :1234
+  break kern_init	
+  b	*0x7c00
+  continue
+  x /10i $pc
+  ```
+
+* 修改makefile文件
+
+  ```makefile
+  $(V)$(QEMU) -no-reboot -d in_asm -D q.log -parallel stdio -hda $< -serial null
+  ```
+
+  增加的参数用来将运行的汇编指令保存在q.log中
+
+* 运行 make qemu获得结果
+
+  打开q.log
+
+  ```
+  IN: 
+  0x00007c00:  cli    
+  0x00007c01:  cld    
+  0x00007c02:  xor    %ax,%ax
+  0x00007c04:  mov    %ax,%ds
+  0x00007c06:  mov    %ax,%es
+  0x00007c08:  mov    %ax,%ss
+  
+  ----------------
+  IN: 
+  0x00007c0a:  in     $0x64,%al
+  
+  ----------------
+  IN: 
+  0x00007c0c:  test   $0x2,%al
+  0x00007c0e:  jne    0x7c0a
+  
+  ----------------
+  IN: 
+  0x00007c10:  mov    $0xd1,%al
+  0x00007c12:  out    %al,$0x64
+  0x00007c14:  in     $0x64,%al
+  0x00007c16:  test   $0x2,%al
+  0x00007c18:  jne    0x7c14
+  
+  ----------------
+  IN: 
+  0x00007c1a:  mov    $0xdf,%al
+  0x00007c1c:  out    %al,$0x60
+  0x00007c1e:  lgdtw  0x7c6c
+  0x00007c23:  mov    %cr0,%eax
+  0x00007c26:  or     $0x1,%eax
+  0x00007c2a:  mov    %eax,%cr0
+  
+  ----------------
+  IN: 
+  0x00007c2d:  ljmp   $0x8,$0x7c32
+  
+  ----------------
+  IN: 
+  0x00007c32:  mov    $0x10,%ax
+  0x00007c36:  mov    %eax,%ds
+  
+  ----------------
+  IN: 
+  0x00007c38:  mov    %eax,%es
+  
+  ----------------
+  IN: 
+  0x00007c3a:  mov    %eax,%fs
+  0x00007c3c:  mov    %eax,%gs
+  0x00007c3e:  mov    %eax,%ss
+  
+  ----------------
+  IN: 
+  0x00007c40:  mov    $0x0,%ebp
+  
+  ----------------
+  IN: 
+  0x00007c45:  mov    $0x7c00,%esp
+  0x00007c4a:  call   0x7d0d
+  ```
+
+  与bootasm.S 和 bootblock.asm比较发现，指令都相同
+
+### 自己找一个 bootloader 或内核中的代码位置，设置断点并进行测试
+
+* 测试断点kern_init, 输出5条指令，最终输出结果为
+
+  ```c++
+  0x100000 <kern_init>:        push   %ebp
+     0x100001 <kern_init+1>:      mov    %esp,%ebp
+  ---Type <return> to continue, or q <return> to quit---
+     0x100003 <kern_init+3>:      push   %ebx
+     0x100004 <kern_init+4>:      sub    $0x14,%esp
+     0x100007 <kern_init+7>:      call   0x100280 <__x86.get_pc_thunk.bx>
+  ```
+
+## 【练习 3】分析 bootloader 进入保护模式的过程
 
