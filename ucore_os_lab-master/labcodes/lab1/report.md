@@ -465,7 +465,99 @@ protcseg:
 
 ## 【练习4】分析bootloader加载ELF格式的OS的过程。
 
+### bootloader如何读取硬盘扇区
 
+在`bootmain.c`中，用`readsect`函数实现了读取硬盘扇区的功能
+
+```C++
+/* readsect - read a single sector at @secno into @dst */
+static void
+readsect(void *dst, uint32_t secno) {
+    // wait for disk to be ready
+    //waitdisk的作用：不断查询读0x1F7寄存器的最高两位，直到最高位为0，并且次高位为1（即磁盘空闲）返回
+    waitdisk();
+    //设置读取扇区的数目为1
+    outb(0x1F2, 1);                         // count = 1
+    //在这4个字节线联合构成的32位参数中，29-31位强制设为1，28位(=0)表示访问"Disk 0"，0-27位是28位的偏移量。
+    outb(0x1F3, secno & 0xFF);
+    outb(0x1F4, (secno >> 8) & 0xFF);
+    outb(0x1F5, (secno >> 16) & 0xFF);
+    outb(0x1F6, ((secno >> 24) & 0xF) | 0xE0);
+    //读扇区对应的命令字为0x20，放在0x1F7寄存器中；
+    outb(0x1F7, 0x20);                      // cmd 0x20 - read sectors
+	
+   	//发出命令后再次等待磁盘可哦贡献
+    // wait for disk to be ready
+    waitdisk();
+
+    // read a sector
+    //开始从0xiF0寄存器中读取数据，调用了insl函数
+    insl(0x1F0, dst, SECTSIZE / 4);
+}
+```
+
+### bootloader 是如何加载 ELF 格式的 OS？
+
+```C++
+void
+bootmain(void) {
+    // read the 1st page off disk
+    // 首先从bin/kernel文件第一页内容加载到内存地址为0x10000的位置，目的是为了读取kernel文件的ELF Header信息
+    //readseg函数包装了readsect，可以读取kernel中任意长度的内容写入虚拟地址中
+    readseg((uintptr_t)ELFHDR, SECTSIZE * 8, 0);
+   // is this a valid ELF?
+    //校验ELF Header的e_magic字段，以确保这是一个ELF文件
+    if (ELFHDR->e_magic != ELF_MAGIC) {
+        goto bad;
+    }
+
+    struct proghdr *ph, *eph;
+	// ELF头部有描述ELF文件应加载到内存什么位置的描述表
+     // 先将描述表的头地址存在ph
+    // load each program segment (ignores ph flags)
+    ph = (struct proghdr *)((uintptr_t)ELFHDR + ELFHDR->e_phoff);
+    eph = ph + ELFHDR->e_phnum;
+    // 按照描述表将ELF文件中数据载入内存
+    for (; ph < eph; ph ++) {
+        readseg(ph->p_va & 0xFFFFFF, ph->p_memsz, ph->p_offset);
+    }
+
+    // call the entry point from the ELF header
+    // note: does not return
+    // ELF文件0x1000位置后面的0xd1ec比特被载入内存0x00100000
+	    // ELF文件0xf000位置后面的0x1d20比特被载入内存0x0010e000
+
+	    //加载完毕，通过ELF Header的e_entry得到内核的入口地址，并跳转到该地址开始执行内核代码
+    ((void (*)(void))(ELFHDR->e_entry & 0xFFFFFF))();
+
+bad:
+    outw(0x8A00, 0x8A00);
+    outw(0x8A00, 0x8E00);
+
+    /* do nothing */
+    while (1);
+}
+```
+
+### 运行调试
+
+* 修改gdbinit为
+
+```makefile
+file obj/bootblock.o
+target remote :1234
+break bootmain
+continue
+```
+
+* 调用 make debug，输入n直至readseg函数执行完毕，此时查询ELF_Header的e_magic的数值
+
+```
+(gdb) x/xw 0x10000
+0x10000:        0x464c457f
+```
+
+校验成功
 
 ## 【练习5】实现函数调用堆栈跟踪函数
 
