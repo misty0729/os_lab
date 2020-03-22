@@ -164,7 +164,7 @@ default_free_pages(struct Page *base, size_t n) {
 
 ### 【练习2】实现寻找虚拟地址对应的页表项
 
-需要补全在文件`kern/mm/pmm/c`中的函数get_pte
+需要补全在文件`kern/mm/pmm.c`中的函数get_pte
 
 根据注释实现代码
 
@@ -224,3 +224,39 @@ default_free_pages(struct Page *base, size_t n) {
 * 引发错误page fault
 
 ### 【练习3】释放某虚地址所在的页并取消对应二级页表项的映射
+
+根据注释实现代码，具体的实现思路如下所示:
+
+首先释放la地址所指向的页，并设置对应的pte值（即找到对应的pte页，把所在页的ref-1）。如果该页的ref为0，则释放pte所在的页，再清空TLB
+
+具体的代码如下：
+
+```c
+//确认页表项是否存在
+if (*ptep & PTE_P) {
+    //找到pte所在页
+        struct Page *page = pte2page(*ptep);
+    //减少引用
+        page_ref_dec(page) 
+            //判断是否为0
+        if (page->ref== 0) {
+            free_page(page);
+        }
+        *ptep = 0;
+        tlb_invalidate(pgdir, la);
+    }
+```
+
+#### 数据结构Page的全局变量（其实是一个数组）的每一项与页表中的页目录项和页表项有无对应关系？如果有，对应关系是什么？
+
+页表中的页目录项保存的物理页面地址 & 页表项保存的物理页面地址都对应于Page数组中的某一页
+
+#### 如果希望虚拟地址与物理地址相等，则需要如何修改lab2？
+
+* 更改链接脚本tools/kernel.ld，将虚拟地址改为0x100000
+
+  目的是消除虚拟地址和线性地址之间的偏差
+
+* 把kernel的基地址改为0
+
+* 注释掉0-4M的映射代码，让线性空间直接映射到对应的物理空间，不产生偏移。
