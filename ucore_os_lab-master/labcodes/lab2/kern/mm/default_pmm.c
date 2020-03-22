@@ -139,8 +139,10 @@ default_alloc_pages(size_t n) {
         if (page->property > n) {
             struct Page *p = page + n;
             p->property = page->property - n;
-            list_add(&free_list, &(p->page_link));
+            SetPageProperty(p);
+            list_add_after(&(page->page_link), &(p->page_link));
     }
+        list_del(&(page->page_link));
         nr_free -= n;
         ClearPageProperty(page);
     }
@@ -159,23 +161,31 @@ default_free_pages(struct Page *base, size_t n) {
     base->property = n;
     SetPageProperty(base);
     list_entry_t *le = list_next(&free_list);
-    while (le != &free_list) {
-        p = le2page(le, page_link);
+    list_entry_t *prev = &free_list;
+    while(le != &free_list) {
+        p = le2page(le,page_link);
+        if(base < p) break;
+        prev = le;
         le = list_next(le);
-        if (base + base->property == p) {
-            base->property += p->property;
-            ClearPageProperty(p);
-            list_del(&(p->page_link));
-        }
-        else if (p + p->property == base) {
-            p->property += base->property;
-            ClearPageProperty(base);
-            base = p;
-            list_del(&(p->page_link));
-        }
+    }
+    //检查是否可以和后一项合并
+    p = le2page(prev, page_link);
+    if(prev != & free_list && p + p->property ==base) {
+        p->property += base->property;
+        ClearPageProperty(base);
+    }
+    else {
+        list_add_after(prev,&(base->page_link));
+        p = base;
+    }
+    //检查是否可以和后一项中的空间可并
+    struct Page *nextp  = le2page(le, page_link);
+    if(le != & free_list && p + p->property ==nextp) {
+        p->property += nextp->property;
+        ClearPageProperty(nextp);
+        list_del(le);
     }
     nr_free += n;
-    list_add(&free_list, &(base->page_link));
 }
 
 static size_t
