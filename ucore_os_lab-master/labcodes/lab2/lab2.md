@@ -161,3 +161,66 @@ default_free_pages(struct Page *base, size_t n) {
 * 替换数据结构：
 
   目前我们使用的是双向链表的结构，可以使用一些树状结构替代，这样子就能优化一些操作例如查找操作
+
+### 【练习2】实现寻找虚拟地址对应的页表项
+
+需要补全在文件`kern/mm/pmm/c`中的函数get_pte
+
+根据注释实现代码
+
+实现思路如下：
+
+首先查询一级页表项，在其中查找二级页表项，如果二级页表不存在，那么要根据参数来帕段是否分配二级页表的内存空间，若部分配则返回空。
+
+具体的代码如下
+
+```c
+#if 0
+    pde_t *pdep = NULL;   // (1) find page directory entry
+//create为0，直接返回Null
+    if (0) {              // (2) check if entry is not present
+                          // (3) check if creating is needed, then alloc page for page table
+                          // CAUTION: this page is used for page table, not for common data page
+                          // (4) set page reference
+        uintptr_t pa = 0; // (5) get linear address of page
+                          // (6) clear page content using memset
+                          // (7) set page directory entry's permission
+    }
+    return NULL;          // (8) return page table entry
+#endif
+//如果原本就有二级页表或者建立了新的页表，返回对应的地址
+    pde_t *pdep = &pgdir[PDX(la)];
+    if (!(*pdep & PTE_P)) {
+        struct Page *page;
+        //根据create的值来判定是否创建
+        if (!create || (page = alloc_page()) == NULL) {
+            return NULL;
+        }
+        set_page_ref(page, 1);
+        uintptr_t pa = page2pa(page);
+        memset(KADDR(pa), 0, PGSIZE);
+        *pdep = pa | PTE_U | PTE_W | PTE_P;
+    }
+    return &((pte_t *)KADDR(PDE_ADDR(*pdep)))[PTX(la)];
+```
+
+#### 请描述页目录项（PDE）和页表项（PTE）中每个组成部分的含义以及对ucore而言的潜在作用
+
+* PDE
+  * PDE_A，PDE_D，PDE_W：与高速缓存相关，记录该页面是否被访问过，是否执行了写穿透策略，如果ucore和硬件的cache交互，则需要用到这些位
+  * PDE_U:当前页的访问权限
+  * PDE_R:决定了当前页是否可写，权限控制
+  * PDE_P：决定当前页是否存在
+* PTE
+  * 大多数与PDE相同
+  * PTE_C: 与高速缓存相关，记录该页面是否被访问过，是否执行了写穿透策略，如果ucore和硬件的cache交互，则需要用到这些位
+  * PTE_G:控制TLB地址的更新策略
+  * PTE_D:该页是否被写过。
+
+#### 如果ucore执行过程中访问内存，出现了页访问异常，请问硬件要做哪些事情？
+
+* 保存引发异常页的地址在寄存器中
+* 设置错误代码
+* 引发错误page fault
+
+### 【练习3】释放某虚地址所在的页并取消对应二级页表项的映射
