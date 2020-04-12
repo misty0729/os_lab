@@ -87,3 +87,116 @@
   * trapframe含义和作用
 
     中断帧的指针，总是指向内核栈的某个位置：当进程从用户空间跳到内核空间时，中断帧记录了进程在被中断前的状态。当内核需要跳回用户空间时，需要调整中断帧以恢复让进程继续执行的各寄存器值。
+
+### 【练习2】为新创建的内核线程分配资源
+
+kernel_thread函数采用了局部变量`tf`来放置保存内核线程的临时中断帧，并把中断帧的指针传递给do_fork函数，而`do_fork`函数会调用`copy_thread`函数来在新创建的进程内核栈上专门给进程的中断帧分配一块空间。
+
+根据注释实现了以下代码：
+
+```C++
+// 分配进程控制块（此时PCB还没有初始化）
+proc = alloc_proc();
+if (proc == NULL) {
+  goto fork_out;
+}
+// 为PCB指定父进程
+proc->parent = current;
+// 分配两个页的内核栈空间给这个新的进程控制块
+if (setup_kstack(proc) != 0) {
+  goto bad_fork_cleanup_proc;
+}
+// 拷贝mm_struct，建立新进程的地址映射关系
+if (copy_mm(clone_flags, proc) != 0) {
+  goto bad_fork_cleanup_kstack;
+}
+// 拷贝父进程的trapframe，并为子进程设置返回值为0
+copy_thread(proc, stack, tf);
+// 中断可能由时钟产生，会使得调度器工作，为了避免产生错误，需要屏蔽中断
+bool intr_flag;
+local_intr_save(intr_flag);
+{
+  // 建立新的哈希链表
+    proc->pid = get_pid();
+    hash_proc(proc);
+    list_add(&proc_list, &(proc->list_link));
+    nr_process ++;
+}
+local_intr_restore(intr_flag);
+// 唤醒进程，转为PROC_RUNNABLE状态
+wakeup_proc(proc);
+// 父进程应该返回子进程的pid
+ret = proc->pid;
+```
+
+* 清说明ucore是否做到给每个新fork的县城一个唯一的id？
+
+  ucore能做到给每个新fork线程一个唯一的id。通过函数get_pid来实现分配唯一的pid
+
+  将last_pid设置为1，next_pid设置位MAX_PID,这两个变量表示进程序列号的区间范围
+
+  遍历进程列表，执行以下操作：
+
+  - 如果pid == last_pid，那么last_pid++
+  - pid在last_pid和next之间，那么将next = pid
+  - 如果last_pid++后比next大，那么将next = MAX_PID，last_pid不变，继续从头开始遍历
+
+### 【练习3】理解proc_run函数和它调用的函数如何完成进程切换的
+
+proc_run的执行过程如下：
+
+* 保存IF位并禁止中断
+* 将current指针指向将要执行的过程
+* 更新TSS中的栈顶指针
+* 加载新的页表
+* 调用switch_to进行上下文切换
+* 当执行proc_run的进程恢复执行之后，需要恢复IF位
+
+```C++
+void
+proc_run(struct proc_struct *proc) {
+    if (proc != current) {	// 判断需要运行的线程是否已经运行着了
+        bool intr_flag;
+        struct proc_struct *prev = current, *next = proc;
+        local_intr_save(intr_flag); // 关闭中断
+        {
+            current = proc;
+            load_esp0(next->kstack + KSTACKSIZE);	//设置TSS
+            lcr3(next->cr3);	// 修改当前的cr3寄存器成需要运行线程（进程）的页目录表
+            switch_to(&(prev->context), &(next->context));	//切换到新的线程
+        }
+        local_intr_restore(intr_flag);
+    }
+}
+```
+
+首先需要关闭中断，以免在进程切换过程中产生新的中断发生新的切换。随后进入switch_to函数执行上下文切换
+
+进入`switch_to`之后，`esp`指向的是压入的返回地址，`esp+4`为第一个参数（`from`），`esp+8`为第二个参数（`to`）。然后把各个寄存器的值储存到`from`指向的地址处，即当前`proc`的`context`中，再将`to`指向的地址中保存的各寄存器的值恢复。之后`pushl 0(%eax)，eax`指向的位置存储的是`to`的`eip（eip`是`context`中的第一个变量），栈顶`（esp）`的位置就是要切换的进程的`eip`。`ret`指令会`pop`出栈顶的值并将这个值设置为当前的`eip`，于是就完成了进程的切换。
+
+* 在本实验执行过程中，创建且运行了几个内核线程
+
+  运行了一个内核进程，2个内核线程：idle init
+
+* 语句`local_intr_save(intr_flag);....local_intr_restore(intr_flag);`在这里有何作用?请说明理由
+
+  在执行省略号部分的代码时关闭中断，执行完毕后再打开中断。作用是避免产生其他的陷入，例如产生另一个进程切换任务，这样会产生错误，因为省略号处代码的执行需要保证原子性。
+
+### 与参考答案的区别
+
+按照注释实现，无明显区别
+
+### 涉及到的重点知识
+
+* 进程控制块的结构
+
+  如果要让内核线程运行，我们首先要创建内核线程对应的进程控制块，还需把这些进程控制块通过链表连在一起，便于随时进行插入，删除和查找操作等进程管理事务。
+
+* 进程切换的过程
+
+  实验四中实现了FIFO调度器，核心是schedule函数，执行逻辑是，首先设置当前线程的need_resched=0，在队列中找到下一个处于就绪的线程||进程，然后调用proc_run函数，进行切换。
+
+### 未涉及的知识点
+
+* 进程在不同状态之间转换时的操作
+* 父子进程之间的关系
