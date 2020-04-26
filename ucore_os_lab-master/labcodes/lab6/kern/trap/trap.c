@@ -57,6 +57,19 @@ idt_init(void) {
      /* LAB5 YOUR CODE */ 
      //you should update your lab1 code (just add ONE or TWO lines of code), let user app to use syscall to get the service of ucore
      //so you should setup the syscall interrupt gate in here
+      extern uintptr_t __vectors[];   //define ISR's entry addrs _vectors[]
+    int i = 0;
+    //arguments：0 means interrupt，GD_KTEXT means kernel text
+    //use SETGATE macro to setup each item of IDT
+    while(i < sizeof(idt) / sizeof(struct gatedesc)) {
+        SETGATE(idt[i], 0, GD_KTEXT, __vectors[i], DPL_KERNEL);
+        i ++;
+    }
+    // switch from user state to kernel state
+    SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+    //let CPU know where is IDT by using 'lidt' instruction
+    lidt(&idt_pd);
+     SETGATE(idt[T_SYSCALL], 1, GD_KTEXT, __vectors[T_SYSCALL], DPL_USER);
 }
 
 static const char *
@@ -220,6 +233,10 @@ trap_dispatch(struct trapframe *tf) {
          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
          * (3) Too Simple? Yes, I think so!
          */
+         ticks++;
+        if (ticks % TICK_NUM == 0) {
+        }
+        sched_class_proc_tick(current);
         /* LAB5 YOUR CODE */
         /* you should upate you lab1 code (just add ONE or TWO lines of code):
          *    Every TICK_NUM cycle, you should set current process's current->need_resched = 1
