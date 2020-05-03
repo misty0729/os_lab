@@ -27,6 +27,13 @@ void
 cond_signal (condvar_t *cvp) {
    //LAB7 EXERCISE1: YOUR CODE
    cprintf("cond_signal begin: cvp %x, cvp->count %d, cvp->owner->next_count %d\n", cvp, cvp->count, cvp->owner->next_count);  
+   monitor_t* mtp = cvp->owner;
+    if (cvp-> count > 0){
+        mtp->next_count++;
+        up(&(cvp->sem));
+        down(&(mtp->next));
+        mtp->next_count --;
+    }
   /*
    *      cond_signal(cv) {
    *          if(cv.count>0) {
@@ -46,6 +53,18 @@ void
 cond_wait (condvar_t *cvp) {
     //LAB7 EXERCISE1: YOUR CODE
     cprintf("cond_wait begin:  cvp %x, cvp->count %d, cvp->owner->next_count %d\n", cvp, cvp->count, cvp->owner->next_count);
+    cvp->count ++;
+    // 需要将自己换出，让出管程
+    // 但是需要特别判断是否存在next优先进程。
+    monitor_t* mtp = cvp->owner;
+    if(mtp->next_count > 0){
+       up(&(mtp->next));
+    }else{
+       up(&(mtp->mutex));
+    }
+    // 自己阻塞
+    down(&(cvp->sem));
+    cvp->count --;
    /*
     *         cv.count ++;
     *         if(mt.next_count>0)
