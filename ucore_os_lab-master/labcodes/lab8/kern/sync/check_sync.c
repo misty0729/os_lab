@@ -16,14 +16,11 @@
 //-----------------philosopher problem using monitor ------------
 /*PSEUDO CODE :philosopher problem using semaphore
 system DINING_PHILOSOPHERS
-
 VAR
 me:    semaphore, initially 1;                    # for mutual exclusion 
 s[5]:  semaphore s[5], initially 0;               # for synchronization 
 pflag[5]: {THINK, HUNGRY, EAT}, initially THINK;  # philosopher flag 
-
 # As before, each philosopher is an endless cycle of thinking and eating.
-
 procedure philosopher(i)
   {
     while TRUE do
@@ -34,11 +31,9 @@ procedure philosopher(i)
        drop_chopsticks(i);
      }
   }
-
 # The take_chopsticks procedure involves checking the status of neighboring 
 # philosophers and then declaring one's own intention to eat. This is a two-phase 
 # protocol; first declaring the status HUNGRY, then going on to EAT.
-
 procedure take_chopsticks(i)
   {
     DOWN(me);               # critical section 
@@ -47,7 +42,6 @@ procedure take_chopsticks(i)
     UP(me);                 # end critical section 
     DOWN(s[i])              # Eat if enabled 
    }
-
 void test(i)                # Let phil[i] eat, if waiting 
   {
     if ( pflag[i] == HUNGRY
@@ -59,11 +53,8 @@ void test(i)                # Let phil[i] eat, if waiting
           UP(s[i])
          }
     }
-
-
 # Once a philosopher finishes eating, all that remains is to relinquish the 
 # resources---its two chopsticks---and thereby release waiting neighbors.
-
 void drop_chopsticks(int i)
   {
     DOWN(me);                # critical section 
@@ -71,7 +62,6 @@ void drop_chopsticks(int i)
     test(i+1);               # Let phil. on rght eat if possible 
     UP(me);                  # up critical section 
    }
-
 */
 //---------- philosophers problem using semaphore ----------------------
 int state_sema[N]; /* 记录每个人状态的数组 */
@@ -183,7 +173,12 @@ void phi_take_forks_condvar(int i) {
 //--------into routine in monitor--------------
      // LAB7 EXERCISE1: YOUR CODE
      // I am hungry
+      state_condvar[i] = HUNGRY;		//记录下哲学家i是否饥饿，即处于等待状态拿叉子
      // try to get fork
+     phi_test_condvar(i);
+     while (state_condvar[i] != EATING) {
+       cond_wait(&(mtp->cv[i]));	//如果得不到叉子就睡眠
+     }
 //--------leave routine in monitor--------------
       if(mtp->next_count>0)
          up(&(mtp->next));
@@ -197,7 +192,10 @@ void phi_put_forks_condvar(int i) {
 //--------into routine in monitor--------------
      // LAB7 EXERCISE1: YOUR CODE
      // I ate over
+      state_condvar[i]=THINKING;	//记录进餐结束的状态
      // test left and right neighbors
+     phi_test_condvar(LEFT);	//看一下左边哲学家现在是否能进餐
+     phi_test_condvar(RIGHT);	//看一下右边哲学家现在是否能进餐
 //--------leave routine in monitor--------------
      if(mtp->next_count>0)
         up(&(mtp->next));
